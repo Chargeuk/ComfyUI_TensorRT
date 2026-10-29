@@ -297,9 +297,9 @@ class TRT_MODEL_CONVERSION_BASE:
         logger = trt.Logger(trt.Logger.INFO)
         builder = trt.Builder(logger)
 
-        network = builder.create_network(
-            1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-        )
+        strongly_typed = int(trt.__version__.split(".")[0]) >= 11
+        network_flags = 0 if strongly_typed else 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+        network = builder.create_network(network_flags)
         parser = trt.OnnxParser(network, logger)
         success = parser.parse_from_file(output_onnx)
         for idx in range(parser.num_errors):
@@ -327,9 +327,16 @@ class TRT_MODEL_CONVERSION_BASE:
                 input_names[k], encode(min_shape), encode(opt_shape), encode(max_shape)
             )
 
-        if dtype == torch.float16:
+        if strongly_typed:
+            # The exporter already uses FP16/BF16 example inputs and casts model
+            # weights through Comfy ops. Do not silently build a FP32 graph when
+            # the caller requested reduced precision.
+            expected_dtype = trt.float16 if dtype == torch.float16 else trt.bfloat16
+            if network.get_input(0).dtype != expected_dtype:
+                raise RuntimeError("Exported ONNX input precision does not match the requested TensorRT precision")
+        elif dtype == torch.float16:
             config.set_flag(trt.BuilderFlag.FP16)
-        if dtype == torch.bfloat16:
+        elif dtype == torch.bfloat16:
             config.set_flag(trt.BuilderFlag.BF16)
 
         config.add_optimization_profile(profile)
