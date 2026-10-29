@@ -39,6 +39,12 @@ class TrTUnet:
     def __init__(self, engine_path):
         with open(engine_path, "rb") as f:
             self.engine = runtime.deserialize_cuda_engine(f.read())
+        if self.engine is None:
+            raise RuntimeError(
+                f"Cannot load {engine_path} with TensorRT {trt.__version__}. "
+                "Re-export the original MODEL using the TensorRT conversion node for this runtime/GPU. "
+                "Keep the existing engine file; TensorRT engine formats are version dependent."
+            )
         self.context = self.engine.create_execution_context()
         self.dtype = torch.float16
 
